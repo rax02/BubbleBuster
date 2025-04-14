@@ -14,6 +14,12 @@ Bubble Buster is an engaging Android puzzle game where players pop bubbles to sc
 
 ## Game characters
 
+<div style="display: flex; gap: 10px;">
+    <img src="app/src/main/res/drawable/blue_bubble.png" alt="Blue Bubble">
+    <img src="app/src/main/res/drawable/black_bomb.png" alt="Black Bomb">
+    <img src="app/src/main/res/drawable/rock.png" alt="The Rock">
+</div>
+
 - Bubbles
 - Bomb
 - The Rock
@@ -30,7 +36,7 @@ Bubble Buster is an engaging Android puzzle game where players pop bubbles to sc
 
 ## Technical Requirements
 
-- Android 11.0 (Marshmallow) or higher
+- Android 11.0 or higher
 - Minimum 2GB RAM
 - 100MB free storage space
 
