@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Base button background -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#006400" />
+            <corners android:radius="25dp" />
+            <stroke android:width="2dp" android:color="#FFFFFF" />
+        </shape>
+    </item>
+    <!-- Shine effect -->
+    <item android:id="@+id/shine">
+        <bitmap
+            android:src="@drawable/shine_effect"
+            android:tileMode="clamp" />
+    </item>
+</layer-list> 
