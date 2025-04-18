@@ -18,6 +18,7 @@ import android.graphics.Typeface
 import androidx.core.content.res.ResourcesCompat
 import android.graphics.Matrix
 import java.util.Collections
+import pl.droidsonroids.gif.GifDrawable
 
 class BubbleGameView(
     context: Context, 
@@ -102,7 +103,7 @@ class BubbleGameView(
     private var lastRockSpawnTime = 0L
     private val rockSpawnInterval = 30000L // 30 seconds
     private lateinit var rockBitmap: Bitmap
-    private var rock_bonus = 10
+    private var rock_bonus = 20
 
     private data class Rock(
         var x: Float,
@@ -179,6 +180,41 @@ class BubbleGameView(
     private var lastParticleBurstTime = 0L
     private val burstInterval = 1000L // Once per second (1000/1)
 
+    // Add after other data classes
+    private data class Witch(
+        var x: Float,
+        var y: Float,
+        var health: Int,
+        val speed: Float,
+        val size: Float,
+        var targetX: Float = 0f,
+        var targetY: Float = 0f,
+        var shakeAmount: Float = 0f,
+        var shakeTime: Long = 0L
+    )
+
+    // Add after other properties
+    private var witches = Collections.synchronizedList(mutableListOf<Witch>())
+    private var lastWitchSpawnTime = 0L
+    private val witchSpawnInterval = 120000L // 2 minutes
+    private lateinit var witchBitmap: Bitmap
+    private var witch_bonus = 50
+
+    // Add after other data classes
+    private data class Explosion(
+        var x: Float,
+        var y: Float,
+        val size: Float = 100f,
+        val startTime: Long = System.currentTimeMillis()
+    )
+
+    // Add after other properties
+    private var explosions = Collections.synchronizedList(mutableListOf<Explosion>())
+    private lateinit var explosionGif: GifDrawable
+
+    // Add this field after other properties
+    private var isCannonExplosion = false
+
     init {
         holder.addCallback(this)
         paint = Paint()
@@ -188,6 +224,8 @@ class BubbleGameView(
         score = 0
         gameTime = 0L
         lastUpdateTime = System.currentTimeMillis()
+        lastRockSpawnTime = System.currentTimeMillis() + 1000L // Set initial spawn 1 seconds in the future
+        lastWitchSpawnTime = System.currentTimeMillis() + 1000L // Set initial spawn 1 seconds in the future
         bulletMeter = maxBullets
         lastBulletRefillTime = System.currentTimeMillis()
         isGameOver = false
@@ -200,6 +238,8 @@ class BubbleGameView(
         blueBubbleBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.blue_bubble)
         blackBombBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.black_bomb)
         rockBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.rock)
+        witchBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.witch)
+        explosionGif = GifDrawable(context.resources, R.drawable.explosion)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -355,6 +395,7 @@ class BubbleGameView(
                 val cannonX = width / 2f
                 val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
                 if (Math.hypot((rock.x - cannonX).toDouble(), (rock.y - cannonY).toDouble()) <= rock.size + 30f) {
+                    createMultipleExplosions(cannonX, cannonY)
                     isGameFrozen = true
                     gameOverStartTime = System.currentTimeMillis()
                     soundManager.playSound(SoundManager.SoundType.BOMB_EXPLODE)
@@ -369,6 +410,56 @@ class BubbleGameView(
                 }
             }
             rocks.removeAll { it.y > height + it.size }
+        }
+
+        synchronized(witches) {
+            // Spawn witches every 2 minutes
+            if (currentTime - lastWitchSpawnTime >= witchSpawnInterval) {
+                val startX = Random.nextFloat() * width  // Random x position across screen width
+                val startY = -50f  // Start above screen
+                val health = (gameTime / 60000L).toInt() + 2
+                val speed = Random.nextFloat() * 3 + 2
+                val size = 70f
+                
+                // Target position is the cannon
+                val targetX = width / 2f
+                val targetY = height.toFloat() - meterHeight - meterPadding - 20f
+                
+                witches.add(Witch(startX, startY, health, speed, size, targetX, targetY))
+                soundManager.playSound(SoundManager.SoundType.WITCH_LAUGH) 
+                lastWitchSpawnTime = currentTime
+            }
+
+            // Update witch positions
+            witches.toList().forEach { witch ->
+                // Calculate direction to target (cannon)
+                val dx = witch.targetX - witch.x
+                val dy = witch.targetY - witch.y
+                val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+                
+                if (distance > 0) {
+                    witch.x += (dx / distance) * witch.speed
+                    witch.y += (dy / distance) * witch.speed
+                }
+
+                // Check collision with cannon
+                val cannonX = width / 2f
+                val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
+                if (Math.hypot((witch.x - cannonX).toDouble(), (witch.y - cannonY).toDouble()) <= witch.size + 30f) {
+                    createMultipleExplosions(cannonX, cannonY)
+                    isGameFrozen = true
+                    gameOverStartTime = System.currentTimeMillis()
+                    soundManager.playSound(SoundManager.SoundType.BOMB_EXPLODE)
+                    return
+                }
+
+                // Witch Shake animation
+                if (witch.shakeAmount > 0f) {
+                    val timeSinceShake = System.currentTimeMillis() - witch.shakeTime
+                    witch.x += sin(timeSinceShake * 0.5f) * witch.shakeAmount
+                    witch.shakeAmount *= 0.9f
+                }
+            }
         }
 
         synchronized(bullets) {
@@ -393,8 +484,12 @@ class BubbleGameView(
                                 Math.hypot((bullet.x - bubble.x).toDouble(), (bullet.y - bubble.y).toDouble()) <= bubble.radius + bulletRadius
                             }?.let { bubble ->
                                 if (bubble.isTnt) {
-                                    createBubblePopEffect(bubble.x, bubble.y, bubble.radius, bombParticleColor)
+                                    explosions.add(Explosion(bubble.x, bubble.y))
                                     soundManager.playSound(SoundManager.SoundType.BOMB_EXPLODE)
+                                    bubblesToRemove.add(bubble)
+                                    bulletsToRemove.add(bullet)
+                                    bubbles.removeAll(bubblesToRemove.toSet()) // Remove TNT immediately
+                                    bullets.removeAll(bulletsToRemove.toSet()) // Remove bullet immediately
                                     isGameFrozen = true
                                     gameOverStartTime = System.currentTimeMillis()
                                     return
@@ -414,6 +509,7 @@ class BubbleGameView(
                             }?.let { rock ->
                                 rock.health--
                                 if (rock.health <= 0) {
+                                    explosions.add(Explosion(rock.x, rock.y))
                                     rocksToRemove.add(rock)
                                     score += rock_bonus
                                     floatingScores.add(FloatingScore(rock.x, rock.y, rock_bonus))
@@ -440,6 +536,39 @@ class BubbleGameView(
                         }
                     }
                 }
+            }
+        }
+
+        synchronized(bullets) {
+            synchronized(witches) {
+                val bulletsToRemove = mutableListOf<Bullet>()
+                val witchesToRemove = mutableListOf<Witch>()
+
+                bullets.forEach { bullet ->
+                    // ...existing code...
+
+                    // Check witch collisions
+                    witches.find { witch ->
+                        Math.hypot((bullet.x - witch.x).toDouble(), (bullet.y - witch.y).toDouble()) <= witch.size + bulletRadius
+                    }?.let { witch ->
+                        witch.health--
+                        if (witch.health <= 0) {
+                            explosions.add(Explosion(witch.x, witch.y))
+                            witchesToRemove.add(witch)
+                            score += witch_bonus
+                            floatingScores.add(FloatingScore(witch.x, witch.y, witch_bonus))
+                            soundManager.playSound(SoundManager.SoundType.BUBBLE_BURST)
+                        } else {
+                            floatingScores.add(FloatingScore(bullet.x, bullet.y, 1))
+                            witch.shakeAmount = 10f
+                            witch.shakeTime = System.currentTimeMillis()
+                        }
+                        bulletsToRemove.add(bullet)
+                    }
+                }
+
+                bullets.removeAll(bulletsToRemove.toSet())
+                witches.removeAll(witchesToRemove.toSet())
             }
         }
     }
@@ -604,23 +733,99 @@ class BubbleGameView(
             }
         }
 
-        // Draw cannon
-        paint.color = cannonColor
-        val cannonX = width / 2f
-        val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
-        
-        // Apply recoil to the cannon length
-        val recoilAdjustedLength = cannonLength - cannonRecoil
-        
-        val endX = cannonX + recoilAdjustedLength * kotlin.math.sin(cannonAngle)
-        val endY = cannonY - recoilAdjustedLength * kotlin.math.cos(cannonAngle)
-        
-        paint.strokeWidth = 20f
-        canvas.drawLine(cannonX, cannonY, endX, endY, paint)
+        // Draw cannon only if cannon is not destroyed
+        if (!isCannonExplosion) {
+            paint.color = cannonColor
+            val cannonX = width / 2f
+            val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
+            
+            // Apply recoil to the cannon length
+            val recoilAdjustedLength = cannonLength - cannonRecoil
+            
+            val endX = cannonX + recoilAdjustedLength * kotlin.math.sin(cannonAngle)
+            val endY = cannonY - recoilAdjustedLength * kotlin.math.cos(cannonAngle)
+            
+            paint.strokeWidth = 20f
+            canvas.drawLine(cannonX, cannonY, endX, endY, paint)
 
-        // Draw cannon base
-        paint.color = Color.DKGRAY
-        canvas.drawCircle(cannonX, cannonY, 30f, paint)
+            // Draw cannon base
+            paint.color = Color.DKGRAY
+            canvas.drawCircle(cannonX, cannonY, 30f, paint)
+        }
+
+        // Draw witches
+        synchronized(witches) {
+            witches.forEach { witch ->
+                val matrix = Matrix()
+                val scale = (witch.size * 2) / witchBitmap.width
+                matrix.setScale(scale, scale)
+                matrix.postTranslate(witch.x - witch.size, witch.y - witch.size)
+                canvas.drawBitmap(witchBitmap, matrix, paint)
+
+                // Draw health meter
+                val meterWidth = witch.size * 2
+                val meterHeight = 10f
+                val meterY = witch.y - witch.size - meterHeight - 5f
+
+                // Draw meter background
+                paint.color = Color.GRAY
+                canvas.drawRect(
+                    witch.x - witch.size,
+                    meterY,
+                    witch.x + witch.size,
+                    meterY + meterHeight,
+                    paint
+                )
+
+                // Draw health bar
+                val healthPercentage = witch.health.toFloat() / (gameTime / 60000L + 2).toFloat()
+                paint.color = Color.MAGENTA
+                canvas.drawRect(
+                    witch.x - witch.size,
+                    meterY,
+                    witch.x - witch.size + (meterWidth * healthPercentage),
+                    meterY + meterHeight,
+                    paint
+                )
+
+                // Draw meter border
+                paint.color = Color.BLACK
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2f
+                canvas.drawRect(
+                    witch.x - witch.size,
+                    meterY,
+                    witch.x + witch.size,
+                    meterY + meterHeight,
+                    paint
+                )
+                paint.style = Paint.Style.FILL
+            }
+        }
+
+        // Draw explosions
+        synchronized(explosions) {
+            explosions.forEach { explosion ->
+                val left = explosion.x - explosion.size/2
+                val top = explosion.y - explosion.size/2
+                val right = explosion.x + explosion.size/2
+                val bottom = explosion.y + explosion.size/2
+                
+                explosionGif.setBounds(
+                    left.toInt(),
+                    top.toInt(),
+                    right.toInt(),
+                    bottom.toInt()
+                )
+                
+                explosionGif.draw(canvas)
+            }
+            paint.alpha = 255
+            // Only remove explosions if it's not a cannon explosion or if game is over
+            if (!isCannonExplosion || isGameOver) {
+                explosions.removeAll { System.currentTimeMillis() - it.startTime > 500 }
+            }
+        }
     }
 
     private fun sleep() {
@@ -676,6 +881,13 @@ class BubbleGameView(
         val endY = cannonY - cannonLength * kotlin.math.cos(cannonAngle)
         
         cannonRecoil = maxRecoil
+
+        // Add small explosion at bullet spawn position
+        explosions.add(Explosion(
+            x = endX,
+            y = endY,
+            size = 30f  // Small explosion size
+        ))
 
         val dx = bulletSpeed * kotlin.math.sin(cannonAngle)
         val dy = -bulletSpeed * kotlin.math.cos(cannonAngle)
@@ -867,6 +1079,35 @@ class BubbleGameView(
                 dy = (Math.sin(angle) * particleSpeed).toFloat(),
                 scale = particleSize,
                 color = color  // Pass the color to the particle
+            ))
+        }
+    }
+
+    private data class DelayedExplosion(
+        val x: Float,
+        val y: Float,
+        val size: Float,
+        val delay: Long
+    )
+
+    // In createMultipleExplosions function, add isCannonExplosion flag
+    private fun createMultipleExplosions(centerX: Float, centerY: Float) {
+        isCannonExplosion = true
+        val currentTime = System.currentTimeMillis()
+        val explosionPattern = listOf(
+            DelayedExplosion(centerX, centerY, 500f, 0L),
+            DelayedExplosion(centerX - 100f, centerY, 100f, 200L),
+            DelayedExplosion(centerX + 100f, centerY, 100f, 400L),
+            DelayedExplosion(centerX, centerY - 50f, 300f, 600L),
+            DelayedExplosion(centerX, centerY + 50f, 300f, 800L)
+        )
+
+        explosionPattern.forEach { delayed ->
+            explosions.add(Explosion(
+                x = delayed.x,
+                y = delayed.y,
+                size = delayed.size,
+                startTime = currentTime + delayed.delay
             ))
         }
     }

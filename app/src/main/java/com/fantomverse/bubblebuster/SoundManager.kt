@@ -14,7 +14,7 @@ class SoundManager(private val context: Context) {
     private var isPaused = false
 
     enum class SoundType {
-        SHOOT, BUBBLE_BURST, BOMB_EXPLODE, ROCK_LAUGH, VICTORY_TRUMPET, FIREWORK_SHOT
+        SHOOT, BUBBLE_BURST, BOMB_EXPLODE, ROCK_LAUGH, VICTORY_TRUMPET, FIREWORK_SHOT, WITCH_LAUGH
     }
 
     init {
@@ -35,6 +35,7 @@ class SoundManager(private val context: Context) {
         sounds[SoundType.ROCK_LAUGH] = soundPool.load(context, R.raw.rock_laugh, 1)
         sounds[SoundType.VICTORY_TRUMPET] = soundPool.load(context, R.raw.victory_trumpet, 1)
         sounds[SoundType.FIREWORK_SHOT] = soundPool.load(context, R.raw.firework_shot, 1)
+        sounds[SoundType.WITCH_LAUGH] = soundPool.load(context, R.raw.witch_laugh, 1)
         // Initialize background music
         homeMusic = MediaPlayer.create(context, R.raw.home_music)
         homeMusic?.isLooping = true
@@ -93,6 +94,7 @@ class SoundManager(private val context: Context) {
         sounds[SoundType.ROCK_LAUGH] = soundPool.load(context, R.raw.rock_laugh, 1)
         sounds[SoundType.VICTORY_TRUMPET] = soundPool.load(context, R.raw.victory_trumpet, 1)
         sounds[SoundType.FIREWORK_SHOT] = soundPool.load(context, R.raw.firework_shot, 1)
+        sounds[SoundType.WITCH_LAUGH] = soundPool.load(context, R.raw.witch_laugh, 1)
         // Reinitialize background music
         homeMusic = MediaPlayer.create(context, R.raw.home_music)
         homeMusic?.isLooping = true
