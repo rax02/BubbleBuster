@@ -184,6 +184,10 @@ class MainActivity : AppCompatActivity() {
         soundManager.playHomeMusic()
     }
 
+    fun pauseHomeMusic() {
+        soundManager.pauseHomeMusic()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && gameView != null) {

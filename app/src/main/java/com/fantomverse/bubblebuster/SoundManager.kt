@@ -14,7 +14,7 @@ class SoundManager(private val context: Context) {
     private var isPaused = false
 
     enum class SoundType {
-        SHOOT, BUBBLE_BURST, BOMB_EXPLODE, ROCK_LAUGH
+        SHOOT, BUBBLE_BURST, BOMB_EXPLODE, ROCK_LAUGH, VICTORY_TRUMPET, FIREWORK_SHOT
     }
 
     init {
@@ -33,6 +33,8 @@ class SoundManager(private val context: Context) {
         sounds[SoundType.BUBBLE_BURST] = soundPool.load(context, R.raw.bubble_burst, 1)
         sounds[SoundType.BOMB_EXPLODE] = soundPool.load(context, R.raw.bomb_explode, 1)
         sounds[SoundType.ROCK_LAUGH] = soundPool.load(context, R.raw.rock_laugh, 1)
+        sounds[SoundType.VICTORY_TRUMPET] = soundPool.load(context, R.raw.victory_trumpet, 1)
+        sounds[SoundType.FIREWORK_SHOT] = soundPool.load(context, R.raw.firework_shot, 1)
         // Initialize background music
         homeMusic = MediaPlayer.create(context, R.raw.home_music)
         homeMusic?.isLooping = true
@@ -52,6 +54,10 @@ class SoundManager(private val context: Context) {
         if (!isPaused) {
             homeMusic?.start()
         }
+    }
+
+    fun pauseHomeMusic() {
+        homeMusic?.pause()
     }
 
     fun pauseAllMusic() {
@@ -85,10 +91,11 @@ class SoundManager(private val context: Context) {
         sounds[SoundType.BUBBLE_BURST] = soundPool.load(context, R.raw.bubble_burst, 1)
         sounds[SoundType.BOMB_EXPLODE] = soundPool.load(context, R.raw.bomb_explode, 1)
         sounds[SoundType.ROCK_LAUGH] = soundPool.load(context, R.raw.rock_laugh, 1)
-
+        sounds[SoundType.VICTORY_TRUMPET] = soundPool.load(context, R.raw.victory_trumpet, 1)
+        sounds[SoundType.FIREWORK_SHOT] = soundPool.load(context, R.raw.firework_shot, 1)
         // Reinitialize background music
         homeMusic = MediaPlayer.create(context, R.raw.home_music)
         homeMusic?.isLooping = true
         homeMusic?.setVolume(homeMusicVolume, homeMusicVolume)
     }
-} 
+}

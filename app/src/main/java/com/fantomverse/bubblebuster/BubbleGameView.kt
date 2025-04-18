@@ -142,6 +142,43 @@ class BubbleGameView(
     private var gameOverStartTime = 0L
     private val gameOverDelay = 3000L // 3 seconds
 
+    private val prefs = context.getSharedPreferences("BubbleBusterPrefs", Context.MODE_PRIVATE)
+    private var highScore = prefs.getInt("high_score", 0)
+    private var isNewHighScore = false
+
+    // Add property near other game state properties
+    private var gameOverMusicHandled = false
+
+    // Add these properties after other particle-related properties
+    private data class CelebrationParticle(
+        var x: Float,
+        var y: Float,
+        var dx: Float,
+        var dy: Float,
+        var color: Int,
+        var size: Float,
+        var alpha: Int = 255,
+        val startTime: Long = System.currentTimeMillis()
+    )
+
+    private var celebrationParticles = Collections.synchronizedList(mutableListOf<CelebrationParticle>())
+    private val celebrationColors = listOf(
+        Color.YELLOW,
+        Color.CYAN,
+        Color.MAGENTA,
+        Color.GREEN,
+        Color.RED
+    )
+
+    // Add after other celebration properties
+    private var lastCornerCelebrationTime = 0L
+    private var currentCorner = 0 // 0 = left, 1 = right
+    private val cornerCelebrationInterval = 1000L // Switch corners every 1 second
+
+    // Add near other timing properties
+    private var lastParticleBurstTime = 0L
+    private val burstInterval = 1000L // Once per second (1000/1)
+
     init {
         holder.addCallback(this)
         paint = Paint()
@@ -250,7 +287,12 @@ class BubbleGameView(
         synchronized(bubbles) {
             // Spawn TNT bomb every 4 seconds
             if (currentTime - lastTntSpawnTime >= tntSpawnInterval) {
-                val x = Random.nextFloat() * width
+                // Randomly choose left (25%) or right (75%) side
+                val x = if (Random.nextBoolean()) {
+                    Random.nextFloat() * (width * 0.25f) // Left 25%
+                } else {
+                    width * 0.75f + Random.nextFloat() * (width * 0.25f) // Right 25%
+                }
                 val y = height.toFloat()
                 val speed = Random.nextFloat() * 5 + 2
                 val radius = Random.nextFloat() * (maxBubbleRadius - minBubbleRadius) + minBubbleRadius
@@ -260,7 +302,12 @@ class BubbleGameView(
 
             // Spawn regular bubble every second
             if (currentTime - lastBubbleSpawnTime >= bubbleSpawnInterval) {
-                val x = Random.nextFloat() * width
+                // Randomly choose left (25%) or right (75%) side
+                val x = if (Random.nextBoolean()) {
+                    Random.nextFloat() * (width * 0.25f) // Left 25%
+                } else {
+                    width * 0.75f + Random.nextFloat() * (width * 0.25f) // Right 25%
+                }
                 val y = height.toFloat()
                 val speed = Random.nextFloat() * 5 + 2
                 val radius = Random.nextFloat() * (maxBubbleRadius - minBubbleRadius) + minBubbleRadius
@@ -561,8 +608,12 @@ class BubbleGameView(
         paint.color = cannonColor
         val cannonX = width / 2f
         val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
-        val endX = cannonX + cannonLength * kotlin.math.sin(cannonAngle)
-        val endY = cannonY - cannonLength * kotlin.math.cos(cannonAngle)
+        
+        // Apply recoil to the cannon length
+        val recoilAdjustedLength = cannonLength - cannonRecoil
+        
+        val endX = cannonX + recoilAdjustedLength * kotlin.math.sin(cannonAngle)
+        val endY = cannonY - recoilAdjustedLength * kotlin.math.cos(cannonAngle)
         
         paint.strokeWidth = 20f
         canvas.drawLine(cannonX, cannonY, endX, endY, paint)
@@ -657,20 +708,71 @@ class BubbleGameView(
         canvas.drawText(timeText, width/2f, 270f, paint)
     }
 
+    private fun createCelebrationEffect() {
+        val particleCount = 25
+        val startX = if (currentCorner == 0) 0f else width.toFloat()
+        for (i in 0..particleCount) {
+            val angle = when (currentCorner) {
+                0 -> Random.nextDouble() * Math.PI / 2 - Math.PI / 4 // Spray right and up for left corner
+                else -> Random.nextDouble() * Math.PI / 2 + Math.PI * 3/4 // Spray left and up for right corner
+            }
+            val speed = Random.nextDouble() * 15 + 5
+            celebrationParticles.add(
+                CelebrationParticle(
+                    x = startX,
+                    y = 0f,
+                    dx = (Math.cos(angle) * speed).toFloat(),
+                    dy = (Math.sin(angle) * speed).toFloat(),
+                    color = celebrationColors[Random.nextInt(celebrationColors.size)],
+                    size = Random.nextFloat() * 20f + 10f
+                )
+            )
+        }
+        
+        // Switch corners
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastCornerCelebrationTime > cornerCelebrationInterval) {
+            currentCorner = (currentCorner + 1) % 2
+            lastCornerCelebrationTime = currentTime
+        }
+    }
+
     private fun drawGameOver(canvas: Canvas) {
         // Draw semi-transparent overlay
         canvas.drawColor(Color.argb(200, 0, 0, 0))
+
+        // Check for new high score
+        if (score > highScore) {
+            highScore = score
+            isNewHighScore = true
+            prefs.edit().putInt("high_score", highScore).apply()
+            soundManager.playSound(SoundManager.SoundType.VICTORY_TRUMPET)
+        }
+
+        // Draw high score status
+        if (isNewHighScore) {
+
+            if (!gameOverMusicHandled) {
+                (context as MainActivity).pauseHomeMusic()
+                gameOverMusicHandled = true
+            }
+            
+            paint.color = Color.YELLOW
+            canvas.drawText(" NEW HIGH SCORE !", width / 2f, height / 2f - 600f, paint)
+        } 
 
         // Draw game over text
         paint.textSize = 80f
         paint.color = Color.WHITE
         paint.typeface = gameFont
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText("GAME OVER", width / 2f, height / 2f - 100f, paint)
+        canvas.drawText("GAME OVER", width / 2f, height / 2f - 200f, paint)
 
         // Draw score
         paint.textSize = 60f
-        canvas.drawText("Score: $score", width / 2f, height / 2f, paint)
+        canvas.drawText("Score: $score", width / 2f, height / 2f - 100f, paint)
+
+
 
         // Draw home button
         val buttonPaint = Paint().apply {
@@ -716,6 +818,35 @@ class BubbleGameView(
         
         canvas.drawText("Home", homeButtonRect.centerX(), textY, paint)
         paint.clearShadowLayer()
+
+        // Update and draw celebration particles if new high score
+        if (isNewHighScore) {
+            // Create random bursts 3 times per second
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastParticleBurstTime >= burstInterval) {
+                lastParticleBurstTime = currentTime // Move this before the effects to prevent double triggering
+                createCelebrationEffect()
+                soundManager.playSound(SoundManager.SoundType.FIREWORK_SHOT)
+            }
+            
+            synchronized(celebrationParticles) {
+                celebrationParticles.forEach { particle ->
+                    particle.x += particle.dx
+                    particle.y += particle.dy
+                    particle.dy += 0.5f 
+                    
+                    paint.color = particle.color
+                    paint.alpha = 255
+                    canvas.drawCircle(particle.x, particle.y, particle.size, paint)
+                }
+                paint.alpha = 255
+                
+                // Remove particles that are off screen
+                celebrationParticles.removeAll { particle -> 
+                    particle.y > height || particle.x < 0 || particle.x > width 
+                }
+            }
+        }
     }
 
     fun getScore(): Int {
