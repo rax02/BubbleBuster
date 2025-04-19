@@ -19,6 +19,7 @@ import androidx.core.content.res.ResourcesCompat
 import android.graphics.Matrix
 import java.util.Collections
 import pl.droidsonroids.gif.GifDrawable
+import android.graphics.BlurMaskFilter
 
 class BubbleGameView(
     context: Context, 
@@ -42,7 +43,7 @@ class BubbleGameView(
 
     // TNT display properties
     private var lastTntSpawnTime = 0L
-    private val tntSpawnInterval = 5000L // 5 seconds in milliseconds
+    private val tntSpawnInterval = 7000L // 7 seconds in milliseconds
 
     // Bubble display properties
     private val minBubbleRadius = 20f
@@ -69,14 +70,19 @@ class BubbleGameView(
     // Bullet meter properties
     private var bulletMeter = 0f
     private val maxBullets = 10f
-    private val bulletRefillRate = 1f // bullets per second
+    private var bulletRefillRate = 1f // bullets per second
     private val meterWidth = 200f
     private val meterHeight = 30f
     private val meterPadding = 20f
 
     // Bullet properties
     private val bulletSpeed = 15f
-    private val bulletRadius = 10f
+    private var currentBulletRadius = 10f  // Replace bulletRadius val with this var
+    private var originalBulletRefillRate = 1f
+    private var originalBulletRadius = 10f
+
+    // Add this near other bullet properties
+    private var bulletSpeedMultiplier = 1f
 
     // Home button properties
     private val homeButtonRect = RectF()
@@ -215,6 +221,48 @@ class BubbleGameView(
     // Add this field after other properties
     private var isCannonExplosion = false
 
+    // Add after other data classes
+    private data class PowerUp(
+        var x: Float,
+        var y: Float,
+        val speed: Float,
+        val radius: Float,
+        val type: PowerUpType,
+        val timeWallet: Int, // Time in seconds
+        var isCollected: Boolean = false,
+        var collectedTime: Long = 0L,
+        var isActive: Boolean = false,
+        var activeStartTime: Long = 0L
+    )
+
+    private enum class PowerUpType(val color: Int, val symbol: String) {
+        RAPID_FIRE(Color.RED, "⚡"),      // Fire symbol for rapid fire
+        DOUBLE_POINTS(Color.YELLOW, "×2"), // Keep ×2 as it's clear
+        SHIELD(Color.BLUE,"🛡️"),          // Shield symbol for shield
+        MEGA_BULLET(Color.GREEN, "🔥")    // Explosion symbol for mega bullet
+    }
+
+    // Add after other properties
+    private var powerUps = Collections.synchronizedList(mutableListOf<PowerUp>())
+    private var collectedPowerUps = Collections.synchronizedList(mutableListOf<PowerUp>())
+    private var lastPowerUpSpawnTime = 0L
+    private val powerUpSpawnInterval = 25000L // 25 seconds
+    private val maxCollectedPowerUps = 5
+    private val powerUpGlowPaint = Paint().apply {
+        maskFilter = BlurMaskFilter(15f, BlurMaskFilter.Blur.OUTER)
+    }
+
+    // Add these properties near other game state properties
+    private var scoreMultiplier = 1
+    private var isShieldActive = false
+
+    // Add these constants near other properties
+    private val powerUpRadius = 35f  
+    private val powerUpTapRadius = 55f  
+
+    // Add this property with other class properties
+    private var isDownOnPowerUp = false 
+
     init {
         holder.addCallback(this)
         paint = Paint()
@@ -240,6 +288,8 @@ class BubbleGameView(
         rockBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.rock)
         witchBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.witch)
         explosionGif = GifDrawable(context.resources, R.drawable.explosion)
+
+        lastPowerUpSpawnTime = System.currentTimeMillis()
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -390,12 +440,12 @@ class BubbleGameView(
 
             // Update rock positions
             rocks.toList().forEach { rock ->
-                rock.y += rock.speed
+                if (!checkShieldCollision(rock.x, rock.y + rock.speed, rock.size)) {
+                    rock.y += rock.speed
+                }
                 
-                val cannonX = width / 2f
-                val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
-                if (Math.hypot((rock.x - cannonX).toDouble(), (rock.y - cannonY).toDouble()) <= rock.size + 30f) {
-                    createMultipleExplosions(cannonX, cannonY)
+                if (checkCannonCollision(rock.x, rock.y, rock.size)) {
+                    createMultipleExplosions(width / 2f, height.toFloat() - meterHeight - meterPadding - 20f)
                     isGameFrozen = true
                     gameOverStartTime = System.currentTimeMillis()
                     soundManager.playSound(SoundManager.SoundType.BOMB_EXPLODE)
@@ -417,7 +467,7 @@ class BubbleGameView(
             if (currentTime - lastWitchSpawnTime >= witchSpawnInterval) {
                 val startX = Random.nextFloat() * width  // Random x position across screen width
                 val startY = -50f  // Start above screen
-                val health = (gameTime / 60000L).toInt() + 2
+                val health = ((gameTime / 60000L).toInt() + 5) 
                 val speed = Random.nextFloat() * 3 + 2
                 val size = 70f
                 
@@ -438,15 +488,17 @@ class BubbleGameView(
                 val distance = kotlin.math.sqrt(dx * dx + dy * dy)
                 
                 if (distance > 0) {
-                    witch.x += (dx / distance) * witch.speed
-                    witch.y += (dy / distance) * witch.speed
+                    val nextX = witch.x + (dx / distance) * witch.speed
+                    val nextY = witch.y + (dy / distance) * witch.speed
+                    
+                    if (!checkShieldCollision(nextX, nextY, witch.size)) {
+                        witch.x = nextX
+                        witch.y = nextY
+                    }
                 }
 
-                // Check collision with cannon
-                val cannonX = width / 2f
-                val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
-                if (Math.hypot((witch.x - cannonX).toDouble(), (witch.y - cannonY).toDouble()) <= witch.size + 30f) {
-                    createMultipleExplosions(cannonX, cannonY)
+                if (checkCannonCollision(witch.x, witch.y, witch.size)) {
+                    createMultipleExplosions(width / 2f, height.toFloat() - meterHeight - meterPadding - 20f)
                     isGameFrozen = true
                     gameOverStartTime = System.currentTimeMillis()
                     soundManager.playSound(SoundManager.SoundType.BOMB_EXPLODE)
@@ -481,7 +533,7 @@ class BubbleGameView(
 
                             // Check bubble collisions
                             bubbles.find { bubble ->
-                                Math.hypot((bullet.x - bubble.x).toDouble(), (bullet.y - bubble.y).toDouble()) <= bubble.radius + bulletRadius
+                                Math.hypot((bullet.x - bubble.x).toDouble(), (bullet.y - bubble.y).toDouble()) <= bubble.radius + currentBulletRadius
                             }?.let { bubble ->
                                 if (bubble.isTnt) {
                                     explosions.add(Explosion(bubble.x, bubble.y))
@@ -497,7 +549,7 @@ class BubbleGameView(
                                     // Create pop effect immediately before removing bubble
                                     createBubblePopEffect(bubble.x, bubble.y, bubble.radius, particleColor)
                                     soundManager.playSound(SoundManager.SoundType.BUBBLE_BURST)
-                                    score += bubble.points
+                                    score += bubble.points * scoreMultiplier  // Apply score multiplier
                                     bubblesToRemove.add(bubble)
                                     bulletsToRemove.add(bullet)
                                 }
@@ -505,16 +557,17 @@ class BubbleGameView(
 
                             // Check rock collisions
                             rocks.find { rock ->
-                                Math.hypot((bullet.x - rock.x).toDouble(), (bullet.y - rock.y).toDouble()) <= rock.size + bulletRadius
+                                Math.hypot((bullet.x - rock.x).toDouble(), (bullet.y - rock.y).toDouble()) <= rock.size + currentBulletRadius
                             }?.let { rock ->
                                 rock.health--
                                 if (rock.health <= 0) {
                                     explosions.add(Explosion(rock.x, rock.y))
                                     rocksToRemove.add(rock)
-                                    score += rock_bonus
+                                    score += rock_bonus * scoreMultiplier  // Apply score multiplier
                                     floatingScores.add(FloatingScore(rock.x, rock.y, rock_bonus))
                                     soundManager.playSound(SoundManager.SoundType.BUBBLE_BURST)
                                 } else {
+                                    score += 1 * scoreMultiplier  // Add 1 point for hitting the rock
                                     floatingScores.add(FloatingScore(bullet.x, bullet.y, 1))
                                     rock.shakeAmount = 10f
                                     rock.shakeTime = System.currentTimeMillis()
@@ -549,16 +602,17 @@ class BubbleGameView(
 
                     // Check witch collisions
                     witches.find { witch ->
-                        Math.hypot((bullet.x - witch.x).toDouble(), (bullet.y - witch.y).toDouble()) <= witch.size + bulletRadius
+                        Math.hypot((bullet.x - witch.x).toDouble(), (bullet.y - witch.y).toDouble()) <= witch.size + currentBulletRadius
                     }?.let { witch ->
                         witch.health--
                         if (witch.health <= 0) {
                             explosions.add(Explosion(witch.x, witch.y))
                             witchesToRemove.add(witch)
-                            score += witch_bonus
+                            score += witch_bonus * scoreMultiplier  // Apply score multiplier
                             floatingScores.add(FloatingScore(witch.x, witch.y, witch_bonus))
                             soundManager.playSound(SoundManager.SoundType.BUBBLE_BURST)
                         } else {
+                            score += 1 * scoreMultiplier  // Add 1 point for hitting the witch
                             floatingScores.add(FloatingScore(bullet.x, bullet.y, 1))
                             witch.shakeAmount = 10f
                             witch.shakeTime = System.currentTimeMillis()
@@ -569,6 +623,60 @@ class BubbleGameView(
 
                 bullets.removeAll(bulletsToRemove.toSet())
                 witches.removeAll(witchesToRemove.toSet())
+            }
+        }
+
+        // Update power-ups
+        synchronized(powerUps) {
+            // Spawn new power-up
+            if (currentTime - lastPowerUpSpawnTime >= powerUpSpawnInterval) {
+                val x = Random.nextFloat() * width
+                val y = -50f
+                val speed = Random.nextFloat() * 3 + 2
+                val type = PowerUpType.values()[Random.nextInt(PowerUpType.values().size)]
+                val timeWallet = ((gameTime / 60000L) * 5 + 5).toInt() // Starts at 5 seconds, increases by 5 every minute
+                powerUps.add(PowerUp(x, y, speed, 30f, type, timeWallet))
+                lastPowerUpSpawnTime = currentTime
+            }
+
+            // Move power-ups
+            powerUps.forEach { powerUp ->
+                if (!powerUp.isCollected) {
+                    powerUp.y += powerUp.speed
+                }
+            }
+            powerUps.removeAll { it.y > height && !it.isCollected }
+        }
+
+        // Check power-up collisions with bullets
+        synchronized(bullets) {
+            synchronized(powerUps) {
+                val bulletsToRemove = mutableListOf<Bullet>()
+                powerUps.filter { !it.isCollected }.forEach { powerUp ->
+                    bullets.find { bullet ->
+                        Math.hypot((bullet.x - powerUp.x).toDouble(), 
+                                 (bullet.y - powerUp.y).toDouble()) <= powerUp.radius + currentBulletRadius
+                    }?.let { bullet ->
+                        if (collectedPowerUps.size < maxCollectedPowerUps) {
+                            powerUp.isCollected = true
+                            powerUp.collectedTime = System.currentTimeMillis()
+                            collectedPowerUps.add(powerUp)
+                            soundManager.playSound(SoundManager.SoundType.BUBBLE_BURST)
+                        }
+                        bulletsToRemove.add(bullet)
+                    }
+                }
+                bullets.removeAll(bulletsToRemove)
+            }
+        }
+
+        // Update active power-ups
+        synchronized(collectedPowerUps) {
+            collectedPowerUps.removeAll { powerUp ->
+                if (powerUp.isActive) {
+                    val elapsedTime = (System.currentTimeMillis() - powerUp.activeStartTime) / 1000
+                    elapsedTime >= powerUp.timeWallet
+                } else false
             }
         }
     }
@@ -729,7 +837,7 @@ class BubbleGameView(
         synchronized(bullets) {
             bullets.forEach { bullet ->
                 paint.color = Color.RED
-                canvas.drawCircle(bullet.x, bullet.y, bulletRadius, paint)
+                canvas.drawCircle(bullet.x, bullet.y, currentBulletRadius, paint)
             }
         }
 
@@ -751,6 +859,22 @@ class BubbleGameView(
             // Draw cannon base
             paint.color = Color.DKGRAY
             canvas.drawCircle(cannonX, cannonY, 30f, paint)
+        }
+
+        // Draw shield effect if active
+        if (isShieldActive) {
+            paint.color = PowerUpType.SHIELD.color
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 15f  // Increased from 5f to 15f for thicker shield
+            paint.alpha = 128
+            canvas.drawCircle(
+                width / 2f,
+                height.toFloat() - meterHeight - meterPadding - 20f,
+                width / 4f,
+                paint
+            )
+            paint.alpha = 255
+            paint.style = Paint.Style.FILL
         }
 
         // Draw witches
@@ -778,7 +902,7 @@ class BubbleGameView(
                 )
 
                 // Draw health bar
-                val healthPercentage = witch.health.toFloat() / (gameTime / 60000L + 2).toFloat()
+                val healthPercentage = witch.health.toFloat() / (gameTime / 60000L + 5).toFloat()
                 paint.color = Color.MAGENTA
                 canvas.drawRect(
                     witch.x - witch.size,
@@ -826,6 +950,68 @@ class BubbleGameView(
                 explosions.removeAll { System.currentTimeMillis() - it.startTime > 500 }
             }
         }
+
+        // Draw power-ups
+        synchronized(powerUps) {
+            powerUps.filter { !it.isCollected }.forEach { powerUp ->
+                // Draw outer glow
+                powerUpGlowPaint.color = powerUp.type.color
+                canvas.drawCircle(powerUp.x, powerUp.y, powerUp.radius + 5f, powerUpGlowPaint)
+                
+                // Draw ring
+                paint.color = powerUp.type.color
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 5f
+                canvas.drawCircle(powerUp.x, powerUp.y, powerUp.radius, paint)
+                paint.style = Paint.Style.FILL
+
+                // Draw symbol inside ring
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = powerUp.radius * 1.2f
+                paint.style = Paint.Style.FILL
+                canvas.drawText(powerUp.type.symbol, powerUp.x, powerUp.y + powerUp.radius/2, paint)
+
+                // Draw time wallet
+                paint.textSize = 20f
+                paint.typeface = Typeface.DEFAULT_BOLD  // Add this line for bold text
+                canvas.drawText("${powerUp.timeWallet}s", powerUp.x, powerUp.y + powerUp.radius + 35f, paint) // Increased from 20f to 35f
+            }
+        }
+
+        // Draw collected power-ups with symbols
+        synchronized(collectedPowerUps) {
+            val startX = width - 80f
+            val startY = height - meterHeight - meterPadding - 100f
+            
+            collectedPowerUps.forEachIndexed { index, powerUp ->
+                val y = startY - (index * 110f)  
+                
+                // Draw active/inactive power-up
+                powerUpGlowPaint.color = powerUp.type.color
+                canvas.drawCircle(startX, y, powerUpRadius, powerUpGlowPaint)
+                
+                paint.color = powerUp.type.color
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 5f
+                canvas.drawCircle(startX, y, powerUpRadius, paint)
+
+                // Draw symbol inside ring
+                paint.style = Paint.Style.FILL
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = powerUpRadius * 1.2f
+                canvas.drawText(powerUp.type.symbol, startX, y + powerUpRadius/2, paint)
+
+                paint.textSize = 20f
+                paint.typeface = Typeface.DEFAULT_BOLD  // Add this line for bold text
+                if (powerUp.isActive) {
+                    val elapsedTime = (System.currentTimeMillis() - powerUp.activeStartTime) / 1000
+                    val remainingTime = powerUp.timeWallet - elapsedTime
+                    canvas.drawText("${remainingTime}s", startX, y + powerUpRadius + 25f, paint)  // Reduced from 35f to 25f
+                } else {
+                    canvas.drawText("${powerUp.timeWallet}s", startX, y + powerUpRadius + 25f, paint)  // Reduced from 35f to 25f
+                }
+            }
+        }
     }
 
     private fun sleep() {
@@ -849,19 +1035,43 @@ class BubbleGameView(
             return true
         }
 
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                lastTouchX = event.x
-                lastTouchY = event.y
-                updateCannonAngle(event.x, event.y)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                updateCannonAngle(event.x, event.y)
-            }
-            MotionEvent.ACTION_UP -> {
-                if (bulletMeter >= 1f) {
-                    shootBullet()
-                    bulletMeter -= 1f
+        if (!isGameOver) {
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    isDownOnPowerUp = false // Reset flag
+                    val startX = width - 80f  // Moved further from edge for better tapping
+                    val startY = height - meterHeight - meterPadding - 100f
+                    
+                    synchronized(collectedPowerUps) {
+                        collectedPowerUps.forEachIndexed { index, powerUp ->
+                            val y = startY - (index * 90f)  // Increased spacing between power-ups
+                            if (!powerUp.isActive && 
+                                Math.hypot((event.x - startX).toDouble(), 
+                                         (event.y - y).toDouble()) <= powerUpTapRadius) {
+                                isDownOnPowerUp = true
+                                powerUp.isActive = true
+                                powerUp.activeStartTime = System.currentTimeMillis()
+                                applyPowerUpEffect(powerUp)
+                                return true // Exit early if power-up was tapped
+                            }
+                        }
+                    }
+                    if (!isDownOnPowerUp) {
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                        updateCannonAngle(event.x, event.y)
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDownOnPowerUp) {
+                        updateCannonAngle(event.x, event.y)
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDownOnPowerUp && bulletMeter >= 1f) {
+                        shootBullet()
+                        bulletMeter -= 1f
+                    }
                 }
             }
         }
@@ -889,8 +1099,8 @@ class BubbleGameView(
             size = 30f  // Small explosion size
         ))
 
-        val dx = bulletSpeed * kotlin.math.sin(cannonAngle)
-        val dy = -bulletSpeed * kotlin.math.cos(cannonAngle)
+        val dx = bulletSpeed * bulletSpeedMultiplier * kotlin.math.sin(cannonAngle)
+        val dy = -bulletSpeed * bulletSpeedMultiplier * kotlin.math.cos(cannonAngle)
         bullets.add(Bullet(endX, endY, dx, dy))
         soundManager.playSound(SoundManager.SoundType.SHOOT)
     }
@@ -1123,4 +1333,61 @@ class BubbleGameView(
         val isFlipped: Boolean = Random.nextBoolean() // Add random flip state
     )
     private data class Bullet(var x: Float, var y: Float, val dx: Float, val dy: Float)
+
+    private fun applyPowerUpEffect(powerUp: PowerUp) {
+        when (powerUp.type) {
+            PowerUpType.RAPID_FIRE -> {
+                bulletRefillRate = originalBulletRefillRate * 2
+                bulletSpeedMultiplier = 3f
+                android.os.Handler().postDelayed({
+                    if (isPlaying) {
+                        bulletRefillRate = originalBulletRefillRate
+                        bulletSpeedMultiplier = 1f
+                    }
+                }, powerUp.timeWallet * 1000L)
+            }
+            PowerUpType.DOUBLE_POINTS -> {
+                scoreMultiplier = 2
+                android.os.Handler().postDelayed({
+                    if (isPlaying) {
+                        scoreMultiplier = 1
+                    }
+                }, powerUp.timeWallet * 1000L)
+            }
+            PowerUpType.SHIELD -> {
+                isShieldActive = true
+                android.os.Handler().postDelayed({
+                    if (isPlaying) {
+                        isShieldActive = false
+                    }
+                }, powerUp.timeWallet * 1000L)
+            }
+            PowerUpType.MEGA_BULLET -> {
+                currentBulletRadius = originalBulletRadius * 2
+                android.os.Handler().postDelayed({
+                    if (isPlaying) {
+                        currentBulletRadius = originalBulletRadius
+                    }
+                }, powerUp.timeWallet * 1000L)
+            }
+        }
+    }
+
+    // Modify collision checks with cannon to respect shield
+    private fun checkShieldCollision(x: Float, y: Float, size: Float): Boolean {
+        if (!isShieldActive) return false
+        
+        val cannonX = width / 2f
+        val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
+        val distanceToCenter = Math.hypot((x - cannonX).toDouble(), (y - cannonY).toDouble())
+        return distanceToCenter <= (width / 4f) + size
+    }
+
+    private fun checkCannonCollision(x: Float, y: Float, size: Float): Boolean {
+        if (isShieldActive) return false
+        
+        val cannonX = width / 2f
+        val cannonY = height.toFloat() - meterHeight - meterPadding - 20f
+        return Math.hypot((x - cannonX).toDouble(), (y - cannonY).toDouble()) <= size + 30f
+    }
 }

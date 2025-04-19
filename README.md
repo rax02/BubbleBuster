@@ -26,6 +26,10 @@ Bubble Buster is an engaging Android puzzle game where players pop bubbles to sc
 - The Witch (Upcoming)
 - The Boss (Upcoming)
 
+## Power-up rings
+- shield
+- golden bullet
+
 ## How to Play
 
 1. Launch the game
