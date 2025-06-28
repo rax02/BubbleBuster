@@ -1,13 +1,17 @@
-# Bubble Buster
+## Download
 
-Bubble Buster is an engaging Android puzzle game where players pop bubbles to score points and complete challenging levels.
+[![Get it on Google Play](https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png)](https://play.google.com/store/apps/details?id=com.fantomverse.bubblebuster)
+
+# Bubble Buster (ad free)
+
+Bubble Buster is an engaging Android action game where players pop bubbles to score points and complete challenging levels.
 
 ## Game Features
 
 - Pop bubbles to score points
 - Multiple challenging levels with increasing difficulty
 - Colorful and vibrant graphics
-- Power-ups and special combinations (Upcoming)
+- Power-ups and special combinations 
 - Real-time score tracking
 - Leaderboard system (Upcoming)
 - Smooth touch controls
@@ -23,7 +27,7 @@ Bubble Buster is an engaging Android puzzle game where players pop bubbles to sc
 - Bubbles
 - Bomb
 - The Rock
-- The Witch (Upcoming)
+- The Witch 
 - The Boss (Upcoming)
 
 ## Power-up rings
